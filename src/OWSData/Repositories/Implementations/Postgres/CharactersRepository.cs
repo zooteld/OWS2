@@ -2,10 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using Npgsql;
 using System.Threading.Tasks;
+using Dapper.Transaction;
 using Microsoft.Extensions.Options;
 using OWSData.Models;
+using OWSData.Models.Composites;
 using OWSData.Models.StoredProcs;
 using OWSData.Repositories.Interfaces;
 using OWSData.Models.Tables;
@@ -26,19 +29,20 @@ namespace OWSData.Repositories.Implementations.Postgres
 
         public async Task AddCharacterToMapInstanceByCharName(Guid customerGUID, string characterName, int mapInstanceID)
         {
-            // TODO Add Logging
-
-            using (Connection)
+            IDbConnection conn = Connection;
+            conn.Open();
+            using IDbTransaction transaction = conn.BeginTransaction();
+            try
             {
                 var parameters = new DynamicParameters();
                 parameters.Add("@CustomerGUID", customerGUID);
                 parameters.Add("@CharName", characterName);
                 parameters.Add("@MapInstanceID", mapInstanceID);
 
-                var outputCharacter = await Connection.QuerySingleOrDefaultAsync<Characters>(GenericQueries.GetCharacterIDFromName,
+                var outputCharacter = await Connection.QuerySingleOrDefaultAsync<Characters>(GenericQueries.GetCharacterIDByName,
                     parameters,
                     commandType: CommandType.Text);
-                
+
                 var outputZone = await Connection.QuerySingleOrDefaultAsync<Maps>(GenericQueries.GetZoneName,
                     parameters,
                     commandType: CommandType.Text);
@@ -60,13 +64,17 @@ namespace OWSData.Repositories.Implementations.Postgres
                         parameters,
                         commandType: CommandType.Text);
                 }
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw new Exception("Database Exception in AddCharacterToMapInstanceByCharName!");
             }
         }
 
         public async Task AddOrUpdateCustomCharacterData(Guid customerGUID, AddOrUpdateCustomCharacterData addOrUpdateCustomCharacterData)
         {
-            // TODO Add Logging
-            
             using (Connection)
             {
                 var parameters = new DynamicParameters();
@@ -75,14 +83,14 @@ namespace OWSData.Repositories.Implementations.Postgres
                 parameters.Add("@CustomFieldName", addOrUpdateCustomCharacterData.CustomFieldName);
                 parameters.Add("@FieldValue", addOrUpdateCustomCharacterData.FieldValue);
 
-                var outputCharacter = await Connection.QuerySingleOrDefaultAsync<Characters>(GenericQueries.GetCharacterIDFromName,
+                var outputCharacter = await Connection.QuerySingleOrDefaultAsync<Characters>(GenericQueries.GetCharacterIDByName,
                     parameters,
                     commandType: CommandType.Text);
 
                 if (outputCharacter.CharacterId > 0)
                 {
                     parameters.Add("@CharacterID", outputCharacter.CharacterId);
-                    
+
                     var hasCustomCharacterData = await Connection.QuerySingleOrDefaultAsync<int>(GenericQueries.HasCustomCharacterDataForField,
                         parameters,
                         commandType: CommandType.Text);
@@ -103,53 +111,89 @@ namespace OWSData.Repositories.Implementations.Postgres
             }
         }
 
-        public async Task<CheckMapInstanceStatus> CheckMapInstanceStatus(Guid customerGUID, int mapInstanceID)
+        public async Task<MapInstances> CheckMapInstanceStatus(Guid customerGUID, int mapInstanceID)
         {
-            CheckMapInstanceStatus outputObject;
-
-            try
+            using (Connection)
             {
-                using (Connection)
-                {
-                    var p = new DynamicParameters();
-                    p.Add("@CustomerGUID", customerGUID);
-                    p.Add("@MapInstanceID", mapInstanceID);
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@MapInstanceID", mapInstanceID);
 
-                    outputObject = await Connection.QueryFirstAsync<CheckMapInstanceStatus>("select * from CheckMapInstanceStatus(@CustomerGUID,@MapInstanceID)",
-                        p,
-                        commandType: CommandType.Text);
+                var outputObject = await Connection.QuerySingleOrDefaultAsync<MapInstances>(GenericQueries.GetMapInstanceStatus,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                if (outputObject == null)
+                {
+                    return new MapInstances();
                 }
 
                 return outputObject;
             }
-            catch (Exception) {
-                outputObject = new CheckMapInstanceStatus();
-                return outputObject;
+        }
+
+        public async Task CleanUpInstances(Guid customerGUID)
+        {
+            IDbConnection conn = Connection;
+            conn.Open();
+            using IDbTransaction transaction = conn.BeginTransaction();
+            try
+            {
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharacterMinutes", 1); // TODO Add Configuration Parameter
+                parameters.Add("@MapMinutes", 2); // TODO Add Configuration Parameter
+
+                await transaction.ExecuteAsync(PostgresQueries.RemoveCharactersFromAllInactiveInstances,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                var outputMapInstances = await transaction.QueryAsync<int>(PostgresQueries.GetAllInactiveMapInstances,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                if (outputMapInstances.Any())
+                {
+                    parameters.Add("@MapInstances", outputMapInstances);
+
+                    await transaction.ExecuteAsync(PostgresQueries.RemoveCharacterFromInstances,
+                        parameters,
+                        commandType: CommandType.Text);
+
+                    await transaction.ExecuteAsync(PostgresQueries.RemoveMapInstances,
+                        parameters,
+                        commandType: CommandType.Text);
+
+                }
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw new Exception("Database Exception in CleanUpInstances!");
             }
         }
 
         public async Task<GetCharByCharName> GetCharByCharName(Guid customerGUID, string characterName)
         {
-            GetCharByCharName outputCharacter;
+            IEnumerable<GetCharByCharName> outputCharacter;
 
             using (Connection)
             {
-                var p = new DynamicParameters();
-                p.Add("@CustomerGUID", customerGUID);
-                p.Add("@CharName", characterName);
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharName", characterName);
 
-                outputCharacter = await Connection.QuerySingleOrDefaultAsync<GetCharByCharName>("select * from GetCharByCharName(@CustomerGUID,@CharName)",
-                    p,
+                outputCharacter = await Connection.QueryAsync<GetCharByCharName>(GenericQueries.GetCharByCharName,
+                    parameters,
                     commandType: CommandType.Text);
             }
 
-            return outputCharacter;
+            return outputCharacter.FirstOrDefault();
         }
 
         public async Task<IEnumerable<CustomCharacterData>> GetCustomCharacterData(Guid customerGUID, string characterName)
         {
-            // TODO Add Logging
-
             IEnumerable<CustomCharacterData> outputCustomCharacterDataRows;
 
             using (Connection)
@@ -168,222 +212,205 @@ namespace OWSData.Repositories.Implementations.Postgres
 
         public async Task<JoinMapByCharName> JoinMapByCharName(Guid customerGUID, string characterName, string zoneName, int playerGroupType)
         {
-            JoinMapByCharName outputObject;
+            // TODO: Run Cleanup here for now. Later this can get moved to a scheduler to run periodically.
+            await CleanUpInstances(customerGUID);
 
-            try
+            JoinMapByCharName outputObject = new JoinMapByCharName();
+
+            string serverIp = "";
+            int? worldServerId = 0;
+            string worldServerIp = "";
+            int worldServerPort = 0;
+            int port = 0;
+            int mapInstanceID = 0;
+            string mapNameToStart = "";
+            int? mapInstanceStatus = 0;
+            bool needToStartupMap = false;
+            bool enableAutoLoopback = false;
+            bool noPortForwarding = false;
+
+            using (Connection)
             {
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharName", characterName);
+                parameters.Add("@ZoneName", zoneName);
+                parameters.Add("@PlayerGroupType", playerGroupType);
 
-                using (Connection)
+                Maps outputMap = await Connection.QuerySingleOrDefaultAsync<Maps>(GenericQueries.GetMapByZoneName,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                Characters outputCharacter = await Connection.QuerySingleOrDefaultAsync<Characters>(GenericQueries.GetCharacterByName,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                Customers outputCustomer = await Connection.QuerySingleOrDefaultAsync<Customers>(GenericQueries.GetCustomer,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                if (outputCharacter == null)
                 {
-                    var p = new DynamicParameters();
-                    p.Add("@CustomerGUID", customerGUID);
-                    p.Add("@CharName", characterName);
-                    p.Add("@ZoneName", zoneName);
-                    p.Add("@PlayerGroupType", playerGroupType);
+                    outputObject = new JoinMapByCharName() {
+                        ServerIP = serverIp,
+                        Port = port,
+                        WorldServerID = -1,
+                        WorldServerIP = worldServerIp,
+                        WorldServerPort = worldServerPort,
+                        MapInstanceID = mapInstanceID,
+                        MapNameToStart = mapNameToStart,
+                        MapInstanceStatus = -1,
+                        NeedToStartupMap = false,
+                        EnableAutoLoopback = enableAutoLoopback,
+                        NoPortForwarding = noPortForwarding
+                    };
 
-                    outputObject = await Connection.QuerySingleOrDefaultAsync<JoinMapByCharName>("select * from JoinMapByCharName(@CustomerGUID,@CharName,@ZoneName,@PlayerGroupType)",
-                        p,
+                    return outputObject;
+                }
+
+                PlayerGroup outputPlayerGroup = new PlayerGroup();
+
+                if (playerGroupType > 0)
+                {
+                    outputPlayerGroup = await Connection.QuerySingleOrDefaultAsync<PlayerGroup>(GenericQueries.GetPlayerGroupIDByType,
+                        parameters,
                         commandType: CommandType.Text);
                 }
-                return outputObject;
-            }
-            catch (Exception) {
-                outputObject = new JoinMapByCharName
+                else
                 {
-                    WorldServerID = -1,
-                    MapInstanceStatus = -1
-                };
-                return outputObject;
+                    outputPlayerGroup.PlayerGroupId = 0;
+                }
+
+                parameters.Add("@IsInternalNetworkTestUser", outputCharacter.IsInternalNetworkTestUser);
+                parameters.Add("@SoftPlayerCap", outputMap.SoftPlayerCap);
+                parameters.Add("@PlayerGroupID", outputPlayerGroup.PlayerGroupId);
+                parameters.Add("@MapID", outputMap.MapId);
+
+                JoinMapByCharName outputJoinMapByCharName = await Connection.QuerySingleOrDefaultAsync<JoinMapByCharName>(PostgresQueries.GetZoneInstancesByZoneAndGroup,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                if (outputJoinMapByCharName != null)
+                {
+                    outputObject.NeedToStartupMap = false;
+                    outputObject.WorldServerID = outputJoinMapByCharName.WorldServerID;
+                    outputObject.ServerIP = outputJoinMapByCharName.ServerIP;
+                    if (outputCharacter.IsInternalNetworkTestUser)
+                    {
+                        outputObject.ServerIP = outputJoinMapByCharName.WorldServerIP;
+                    }
+                    outputObject.WorldServerIP = outputJoinMapByCharName.WorldServerIP;
+                    outputObject.WorldServerPort = outputJoinMapByCharName.WorldServerPort;
+                    outputObject.Port = outputJoinMapByCharName.Port;
+                    outputObject.MapInstanceID = outputJoinMapByCharName.MapInstanceID;
+                    outputObject.MapNameToStart = outputMap.MapName;
+                }
+                else
+                {
+                    MapInstances outputMapInstance = await SpinUpInstance(customerGUID, zoneName, outputPlayerGroup.PlayerGroupId);
+
+                    parameters.Add("@WorldServerId", outputMapInstance.WorldServerId);
+
+                    WorldServers outputWorldServers =  await Connection.QuerySingleOrDefaultAsync<WorldServers>(GenericQueries.GetWorldByID,
+                        parameters,
+                        commandType: CommandType.Text);
+
+                    outputObject.NeedToStartupMap = true;
+                    outputObject.WorldServerID = outputMapInstance.WorldServerId;
+                    outputObject.ServerIP = outputWorldServers.ServerIp;
+                    if (outputCharacter.IsInternalNetworkTestUser)
+                    {
+                        outputObject.ServerIP = outputWorldServers.InternalServerIp;
+                    }
+                    outputObject.WorldServerIP = outputWorldServers.InternalServerIp;
+                    outputObject.WorldServerPort = outputWorldServers.Port;
+                    outputObject.Port = outputMapInstance.Port;
+                    outputObject.MapInstanceID = outputMapInstance.MapInstanceId;
+                    outputObject.MapNameToStart = outputMap.MapName;
+                }
+
+                if (outputCharacter.Email.Contains("@localhost") || outputCharacter.IsInternalNetworkTestUser)
+                {
+                    outputObject.ServerIP = "127.0.0.1";
+                }
+
             }
+
+            return outputObject;
+        }
+
+        public async Task<MapInstances> SpinUpInstance(Guid customerGUID, string zoneName, int playerGroupId = 0)
+        {
+            using (Connection)
+            {
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@ZoneName", zoneName);
+                parameters.Add("@PlayerGroupId", playerGroupId);
+
+                List<WorldServers> outputWorldServers = (List<WorldServers>)await Connection.QueryAsync<WorldServers>(GenericQueries.GetActiveWorldServersByLoad,
+                    parameters,
+                    commandType: CommandType.Text);
+
+                if (outputWorldServers.Any())
+                {
+                    int? firstAvailable = null;
+                    foreach (var worldServer in outputWorldServers)
+                    {
+                        var portsInUse = await Connection.QueryAsync<int>(GenericQueries.GetPortsInUseByWorldServer,
+                            parameters,
+                            commandType: CommandType.Text);
+
+                        firstAvailable = Enumerable.Range(worldServer.StartingMapInstancePort, worldServer.StartingMapInstancePort + worldServer.MaxNumberOfInstances)
+                            .Except(portsInUse)
+                            .FirstOrDefault();
+
+                        if (firstAvailable >= worldServer.StartingMapInstancePort)
+                        {
+
+                            Maps outputMaps = await Connection.QuerySingleOrDefaultAsync<Maps>(GenericQueries.GetMapByZoneName,
+                                parameters,
+                                commandType: CommandType.Text);
+
+                            parameters.Add("@WorldServerID", worldServer.WorldServerId);
+                            parameters.Add("@MapID", outputMaps.MapId);
+                            parameters.Add("@Port", firstAvailable);
+
+                            int outputMapInstanceID = await Connection.QuerySingleOrDefaultAsync<int>(PostgresQueries.AddMapInstance,
+                                parameters,
+                                commandType: CommandType.Text);
+
+                            parameters.Add("@MapInstanceID", outputMapInstanceID);
+
+                            MapInstances outputMapInstances = await Connection.QuerySingleOrDefaultAsync<MapInstances>(GenericQueries.GetMapInstance,
+                                parameters,
+                                commandType: CommandType.Text);
+
+                            return outputMapInstances;
+                        }
+                    }
+                }
+            }
+
+            return new MapInstances { MapInstanceId = -1 };
         }
 
         public async Task UpdateCharacterStats(UpdateCharacterStats updateCharacterStats)
         {
             using (Connection)
             {
-                var p = new DynamicParameters();
-                p.Add("@CustomerGUID", updateCharacterStats.CustomerGUID);
-                p.Add("@CharName", updateCharacterStats.CharName);
-                p.Add("@CharacterLevel", updateCharacterStats.CharacterLevel);
-                p.Add("@Gender", updateCharacterStats.Gender);
-                p.Add("@Weight", updateCharacterStats.Weight);
-                p.Add("@Size", updateCharacterStats.Size);
-                p.Add("@Fame", updateCharacterStats.Fame);
-                p.Add("@Alignment", updateCharacterStats.Alignment);
-                p.Add("@Description", updateCharacterStats.Description);
-                p.Add("@XP", updateCharacterStats.XP);
-                p.Add("@X", updateCharacterStats.X);
-                p.Add("@Y", updateCharacterStats.Y);
-                p.Add("@Z", updateCharacterStats.Z);
-                p.Add("@RX", updateCharacterStats.RX);
-                p.Add("@RY", updateCharacterStats.RY);
-                p.Add("@RZ", updateCharacterStats.RZ);
-                p.Add("@TeamNumber", updateCharacterStats.TeamNumber);
-                p.Add("@HitDie", updateCharacterStats.HitDie);
-                p.Add("@Wounds", updateCharacterStats.Wounds);
-                p.Add("@Thirst", updateCharacterStats.Thirst);
-                p.Add("@Hunger", updateCharacterStats.Hunger);
-                p.Add("@MaxHealth", updateCharacterStats.MaxHealth);
-                p.Add("@Health", updateCharacterStats.Health);
-                p.Add("@HealthRegenRate", updateCharacterStats.HealthRegenRate);
-                p.Add("@MaxMana", updateCharacterStats.MaxMana);
-                p.Add("@Mana", updateCharacterStats.Mana);
-                p.Add("@ManaRegenRate", updateCharacterStats.ManaRegenRate);
-                p.Add("@MaxEnergy", updateCharacterStats.MaxEnergy);
-                p.Add("@Energy", updateCharacterStats.Energy);
-                p.Add("@EnergyRegenRate", updateCharacterStats.EnergyRegenRate);
-                p.Add("@MaxFatigue", updateCharacterStats.MaxFatigue);
-                p.Add("@Fatigue", updateCharacterStats.Fatigue);
-                p.Add("@FatigueRegenRate", updateCharacterStats.FatigueRegenRate);
-                p.Add("@MaxStamina", updateCharacterStats.MaxStamina);
-                p.Add("@Stamina", updateCharacterStats.Stamina);
-                p.Add("@StaminaRegenRate", updateCharacterStats.StaminaRegenRate);
-                p.Add("@MaxEndurance", updateCharacterStats.MaxEndurance);
-                p.Add("@Endurance", updateCharacterStats.Endurance);
-                p.Add("@EnduranceRegenRate", updateCharacterStats.EnduranceRegenRate);
-                p.Add("@Strength", updateCharacterStats.Strength);
-                p.Add("@Dexterity", updateCharacterStats.Dexterity);
-                p.Add("@Constitution", updateCharacterStats.Constitution);
-                p.Add("@Intellect", updateCharacterStats.Intellect);
-                p.Add("@Wisdom", updateCharacterStats.Wisdom);
-                p.Add("@Charisma", updateCharacterStats.Charisma);
-                p.Add("@Agility", updateCharacterStats.Agility);
-                p.Add("@Spirit", updateCharacterStats.Spirit);
-                p.Add("@Magic", updateCharacterStats.Magic);
-                p.Add("@Fortitude", updateCharacterStats.Fortitude);
-                p.Add("@Reflex", updateCharacterStats.Reflex);
-                p.Add("@Willpower", updateCharacterStats.Willpower);
-                p.Add("@BaseAttack", updateCharacterStats.BaseAttack);
-                p.Add("@BaseAttackBonus", updateCharacterStats.BaseAttackBonus);
-                p.Add("@AttackPower", updateCharacterStats.AttackPower);
-                p.Add("@AttackSpeed", updateCharacterStats.AttackSpeed);
-                p.Add("@CritChance", updateCharacterStats.CritChance);
-                p.Add("@CritMultiplier", updateCharacterStats.CritMultiplier);
-                p.Add("@Haste", updateCharacterStats.Haste);
-                p.Add("@SpellPower", updateCharacterStats.SpellPower);
-                p.Add("@SpellPenetration", updateCharacterStats.SpellPenetration);
-                p.Add("@Defense", updateCharacterStats.Defense);
-                p.Add("@Dodge", updateCharacterStats.Dodge);
-                p.Add("@Parry", updateCharacterStats.Parry);
-                p.Add("@Avoidance", updateCharacterStats.Avoidance);
-                p.Add("@Versatility", updateCharacterStats.Versatility);
-                p.Add("@Multishot", updateCharacterStats.Multishot);
-                p.Add("@Initiative", updateCharacterStats.Initiative);
-                p.Add("@NaturalArmor", updateCharacterStats.NaturalArmor);
-                p.Add("@PhysicalArmor", updateCharacterStats.PhysicalArmor);
-                p.Add("@BonusArmor", updateCharacterStats.BonusArmor);
-                p.Add("@ForceArmor", updateCharacterStats.ForceArmor);
-                p.Add("@MagicArmor", updateCharacterStats.MagicArmor);
-                p.Add("@Resistance", updateCharacterStats.Resistance);
-                p.Add("@ReloadSpeed", updateCharacterStats.ReloadSpeed);
-                p.Add("@Range", updateCharacterStats.Range);
-                p.Add("@Speed", updateCharacterStats.Speed);
-                p.Add("@Gold", updateCharacterStats.Gold);
-                p.Add("@Silver", updateCharacterStats.Silver);
-                p.Add("@Copper", updateCharacterStats.Copper);
-                p.Add("@FreeCurrency", updateCharacterStats.FreeCurrency);
-                p.Add("@PremiumCurrency", updateCharacterStats.PremiumCurrency);
-                p.Add("@Perception", updateCharacterStats.Perception);
-                p.Add("@Acrobatics", updateCharacterStats.Acrobatics);
-                p.Add("@Climb", updateCharacterStats.Climb);
-                p.Add("@Stealth", updateCharacterStats.Stealth);
-                p.Add("@Score", updateCharacterStats.Score);
-
-                await Connection.QuerySingleOrDefaultAsync("call " +
-                                                           "UpdateCharacterStats(@CustomerGUID::uuid, " +
-                                                           "@CharName::varchar, " +
-                                                           "@CharacterLevel::smallint, " +
-                                                           "@Gender::smallint, " +
-                                                           "@Weight::float, " +
-                                                           "@Size::smallint, " +
-                                                           "@Fame::float, " +
-                                                           "@Alignment::float, " +
-                                                           "@Description::text, " +
-                                                           "@XP, " +
-                                                           "@X::float, " +
-                                                           "@Y::float, " +
-                                                           "@Z::float, " +
-                                                           "@RX::float, " +
-                                                           "@RY::float, " +
-                                                           "@RZ::float, " +
-                                                           "@TeamNumber, " +
-                                                           "@HitDie::smallint, " +
-                                                           "@Wounds::float, " +
-                                                           "@Thirst::float, " +
-                                                           "@Hunger::float, " +
-                                                           "@MaxHealth::float, " +
-                                                           "@Health::float, " +
-                                                           "@HealthRegenRate::float, " +
-                                                           "@MaxMana::float, " +
-                                                           "@Mana::float, " +
-                                                           "@ManaRegenRate::float, " +
-                                                           "@MaxEnergy::float, " +
-                                                           "@Energy::float, " +
-                                                           "@EnergyRegenRate::float, " +
-                                                           "@MaxFatigue::float, " +
-                                                           "@Fatigue::float, " +
-                                                           "@FatigueRegenRate::float, " +
-                                                           "@MaxStamina::float, " +
-                                                           "@Stamina::float, " +
-                                                           "@StaminaRegenRate::float, " +
-                                                           "@MaxEndurance::float, " +
-                                                           "@Endurance::float, " +
-                                                           "@EnduranceRegenRate::float, " +
-                                                           "@Strength::float, " +
-                                                           "@Dexterity::float, " +
-                                                           "@Constitution::float, " +
-                                                           "@Intellect::float, " +
-                                                           "@Wisdom::float, " +
-                                                           "@Charisma::float, " +
-                                                           "@Agility::float, " +
-                                                           "@Spirit::float, " +
-                                                           "@Magic::float, " +
-                                                           "@Fortitude::float, " +
-                                                           "@Reflex::float, " +
-                                                           "@Willpower::float, " +
-                                                           "@BaseAttack::float, " +
-                                                           "@BaseAttackBonus::float, " +
-                                                           "@AttackPower::float, " +
-                                                           "@AttackSpeed::float, " +
-                                                           "@CritChance::float, " +
-                                                           "@CritMultiplier::float, " +
-                                                           "@Haste::float, " +
-                                                           "@SpellPower::float, " +
-                                                           "@SpellPenetration::float, " +
-                                                           "@Defense::float, " +
-                                                           "@Dodge::float, " +
-                                                           "@Parry::float, " +
-                                                           "@Avoidance::float, " +
-                                                           "@Versatility::float, " +
-                                                           "@Multishot::float, " +
-                                                           "@Initiative::float, " +
-                                                           "@NaturalArmor::float, " +
-                                                           "@PhysicalArmor::float, " +
-                                                           "@BonusArmor::float, " +
-                                                           "@ForceArmor::float, " +
-                                                           "@MagicArmor::float, " +
-                                                           "@Resistance::float, " +
-                                                           "@ReloadSpeed::float, " +
-                                                           "@Range::float, " +
-                                                           "@Speed::float, " +
-                                                           "@Gold, " +
-                                                           "@Silver, " +
-                                                           "@Copper, " +
-                                                           "@FreeCurrency, " +
-                                                           "@PremiumCurrency, " +
-                                                           "@Perception::float, " +
-                                                           "@Acrobatics::float, " +
-                                                           "@Climb::float, " +
-                                                           "@Stealth::float, " +
-                                                           "@Score)",
-                    p,
+                await Connection.ExecuteAsync(GenericQueries.UpdateCharacterStats.Replace("@CustomerGUID", "@CustomerGUID::uuid"), // NOTE Postgres text=>uuid
+                    updateCharacterStats,
                     commandType: CommandType.Text);
             }
         }
 
         public async Task UpdatePosition(Guid customerGUID, string characterName, string mapName, float X, float Y, float Z, float RX, float RY, float RZ)
         {
-            using (Connection)
+            IDbConnection conn = Connection;
+            conn.Open();
+            using IDbTransaction transaction = conn.BeginTransaction();
+            try
             {
                 var p = new DynamicParameters();
                 p.Add("@CustomerGUID", customerGUID);
@@ -391,14 +418,34 @@ namespace OWSData.Repositories.Implementations.Postgres
                 p.Add("@MapName", mapName);
                 p.Add("@X", X);
                 p.Add("@Y", Y);
-                p.Add("@Z", Z);
+                p.Add("@Z", Z + 1);
                 p.Add("@RX", RX);
                 p.Add("@RY", RY);
                 p.Add("@RZ", RZ);
 
-                await Connection.ExecuteAsync("call UpdatePositionOfCharacterByName (@CustomerGUID,@CharName,@MapName,@X,@Y,@Z,@RX,@RY,@RZ)",
+                if (mapName != String.Empty)
+                {
+                    await Connection.ExecuteAsync(GenericQueries.UpdateCharacterPositionAndMap,
+                        p,
+                        commandType: CommandType.Text);
+                }
+                else
+                {
+                    await Connection.ExecuteAsync(GenericQueries.UpdateCharacterPosition,
+                        p,
+                        commandType: CommandType.Text);
+                }
+
+                await Connection.ExecuteAsync(PostgresQueries.UpdateUserLastAccess,
                     p,
                     commandType: CommandType.Text);
+
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw new Exception("Database Exception in UpdatePosition!");
             }
         }
 
@@ -406,13 +453,22 @@ namespace OWSData.Repositories.Implementations.Postgres
         {
             using (Connection)
             {
-                var p = new DynamicParameters();
-                p.Add("@CustomerGUID", customerGUID);
-                p.Add("@CharName", characterName);
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharName", characterName);
 
-                await Connection.ExecuteAsync("call PlayerLogout(@CustomerGUID, @CharName)",
-                    p,
+                var outputCharacter = await Connection.QuerySingleOrDefaultAsync<Characters>(GenericQueries.GetCharacterIDByName,
+                    parameters,
                     commandType: CommandType.Text);
+
+                if (outputCharacter.CharacterId > 0)
+                {
+                    parameters.Add("@CharacterID", outputCharacter.CharacterId);
+
+                    await Connection.ExecuteAsync(GenericQueries.RemoveCharacterFromAllInstances,
+                        parameters,
+                        commandType: CommandType.Text);
+                }
             }
         }
 
@@ -429,9 +485,16 @@ namespace OWSData.Repositories.Implementations.Postgres
                     CharHasAbilitiesCustomJSON = charHasAbilitiesCustomJSON
                 };
 
-                await Connection.QueryAsync(PostgresQueries.AddAbilityToCharacterSQL,
+                var outputCharacterAbility = await Connection.QuerySingleOrDefaultAsync<GlobalData>(GenericQueries.GetCharacterAbilityByName,
                     parameters,
                     commandType: CommandType.Text);
+
+                if (outputCharacterAbility == null)
+                {
+                    await Connection.ExecuteAsync(PostgresQueries.AddAbilityToCharacter,
+                        parameters,
+                        commandType: CommandType.Text);
+                }
             }
         }
 
@@ -441,31 +504,29 @@ namespace OWSData.Repositories.Implementations.Postgres
 
             using (Connection)
             {
-                var parameters = new
-                {
-                    CustomerGUID = customerGUID
-                };
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
 
-                outputGetAbilities = await Connection.QueryAsync<Abilities>(PostgresQueries.GetAbilities,
+                outputGetAbilities = await Connection.QueryAsync<Abilities>(GenericQueries.GetAbilities,
                     parameters,
                     commandType: CommandType.Text);
             }
 
             return outputGetAbilities;
         }
-        
+
         public async Task<IEnumerable<GetCharacterAbilities>> GetCharacterAbilities(Guid customerGUID, string characterName)
         {
             IEnumerable<GetCharacterAbilities> outputGetCharacterAbilities;
 
             using (Connection)
             {
-                var p = new DynamicParameters();
-                p.Add("@CustomerGUID", customerGUID);
-                p.Add("@CharName", characterName);
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharName", characterName);
 
-                outputGetCharacterAbilities = await Connection.QueryAsync<GetCharacterAbilities>("select * from GetCharacterAbilities(@CustomerGUID, @CharName)",
-                    p,
+                outputGetCharacterAbilities = await Connection.QueryAsync<GetCharacterAbilities>(GenericQueries.GetCharacterAbilities,
+                    parameters,
                     commandType: CommandType.Text);
             }
 
@@ -478,12 +539,12 @@ namespace OWSData.Repositories.Implementations.Postgres
 
             using (Connection)
             {
-                var p = new DynamicParameters();
-                p.Add("@CustomerGUID", customerGUID);
-                p.Add("@CharName", characterName);
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharName", characterName);
 
-                outputGetAbilityBars = await Connection.QueryAsync<GetAbilityBars>("select * from GetAbilityBars(@CustomerGUID, @CharName)",
-                    p,
+                outputGetAbilityBars = await Connection.QueryAsync<GetAbilityBars>(GenericQueries.GetCharacterAbilityBars,
+                    parameters,
                     commandType: CommandType.Text);
             }
 
@@ -496,12 +557,12 @@ namespace OWSData.Repositories.Implementations.Postgres
 
             using (Connection)
             {
-                var p = new DynamicParameters();
-                p.Add("@CustomerGUID", customerGUID);
-                p.Add("@CharName", characterName);
+                var parameters = new DynamicParameters();
+                parameters.Add("@CustomerGUID", customerGUID);
+                parameters.Add("@CharName", characterName);
 
-                outputGetAbilityBarsAndAbilities = await Connection.QueryAsync<GetAbilityBarsAndAbilities>("select * from GetAbilityBarsAndAbilities (@CustomerGUID, @CharName)",
-                    p,
+                outputGetAbilityBarsAndAbilities = await Connection.QueryAsync<GetAbilityBarsAndAbilities>(GenericQueries.GetCharacterAbilityBarsAndAbilities,
+                    parameters,
                     commandType: CommandType.Text);
             }
 
@@ -519,7 +580,7 @@ namespace OWSData.Repositories.Implementations.Postgres
                     CharacterName = characterName
                 };
 
-                await Connection.ExecuteAsync(PostgresQueries.RemoveAbilityFromCharacterSQL, parameters);
+                await Connection.ExecuteAsync(PostgresQueries.RemoveAbilityFromCharacter, parameters);
             }
         }
 
@@ -536,7 +597,7 @@ namespace OWSData.Repositories.Implementations.Postgres
                     CharHasAbilitiesCustomJSON = charHasAbilitiesCustomJSON
                 };
 
-                await Connection.ExecuteAsync(PostgresQueries.UpdateAbilityOnCharacterSQL, parameters);
+                await Connection.ExecuteAsync(PostgresQueries.UpdateAbilityOnCharacter, parameters);
             }
         }
     }

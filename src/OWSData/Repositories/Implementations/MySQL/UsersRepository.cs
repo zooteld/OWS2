@@ -35,7 +35,7 @@ namespace OWSData.Repositories.Implementations.MySQL
                 p.Add("@CustomerGUID", customerGUID);
                 p.Add("@UserSessionGUID", userSessionGUID);
 
-                outputObject = await Connection.QueryAsync<GetAllCharacters>("call GetAllCharacters(@CustomerGUID,@UserSessionGUID)",
+                outputObject = await Connection.QueryAsync<GetAllCharacters>(GenericQueries.GetAllCharacters,
                     p,
                     commandType: CommandType.Text);
             }
@@ -64,6 +64,37 @@ namespace OWSData.Repositories.Implementations.MySQL
 
                 outputObject.Success = String.IsNullOrEmpty(outputObject.ErrorMessage);
             
+                return outputObject;
+            }
+            catch (Exception ex)
+            {
+                outputObject.Success = false;
+                outputObject.ErrorMessage = ex.Message;
+
+                return outputObject;
+            }
+        }
+
+        public async Task<SuccessAndErrorMessage> CreateCharacterUsingDefaultCharacterValues(Guid customerGUID, Guid userGUID, string characterName, string defaultSetName)
+        {
+            SuccessAndErrorMessage outputObject = new SuccessAndErrorMessage();
+
+            try
+            {
+                using (Connection)
+                {
+                    var p = new DynamicParameters();
+                    p.Add("CustomerGUID", customerGUID);
+                    p.Add("UserGUID", userGUID);
+                    p.Add("CharacterName", characterName);
+                    p.Add("DefaultSetName", defaultSetName);
+
+                    await Connection.ExecuteAsync(GenericQueries.CreateCharacterUsingDefaultCharacterValuesSQL,
+                    p,
+                    commandType: CommandType.Text);
+                }
+
+                outputObject.Success = true;
                 return outputObject;
             }
             catch (Exception ex)
@@ -113,7 +144,22 @@ namespace OWSData.Repositories.Implementations.MySQL
 
             return outputObject;
         }
-        
+
+        public async Task<IEnumerable<User>> GetUsers(Guid customerGuid)
+        {
+            IEnumerable<User> outputObject = null;
+
+            using (Connection)
+            {
+                var p = new DynamicParameters();
+                p.Add("@CustomerGUID", customerGuid);
+
+                outputObject = await Connection.QueryAsync<User>(GenericQueries.GetUsers, p);
+            }
+
+            return outputObject;
+        }
+
         public async Task<GetUserSession> GetUserSession(Guid customerGUID, Guid userSessionGUID)
         {
             GetUserSession outputObject;
@@ -281,6 +327,40 @@ namespace OWSData.Repositories.Implementations.MySQL
                     p.Add("@CharacterName", characterName);
 
                     await Connection.ExecuteAsync("call RemoveCharacter(@CustomerGUID,@UserSessionGUID,@CharacterName)",
+                        p,
+                        commandType: CommandType.Text);
+                }
+
+                outputObject.Success = true;
+                outputObject.ErrorMessage = "";
+
+                return outputObject;
+            }
+            catch (Exception ex)
+            {
+                outputObject.Success = false;
+                outputObject.ErrorMessage = ex.Message;
+
+                return outputObject;
+            }
+        }
+
+        public async Task<SuccessAndErrorMessage> UpdateUser(Guid customerGuid, Guid userGuid, string firstName, string lastName, string email)
+        {
+            SuccessAndErrorMessage outputObject = new SuccessAndErrorMessage();
+
+            try
+            {
+                using (Connection)
+                {
+                    var p = new DynamicParameters();
+                    p.Add("@CustomerGUID", customerGuid);
+                    p.Add("@UserGUID", userGuid);
+                    p.Add("@FirstName", firstName);
+                    p.Add("@LastName", lastName);
+                    p.Add("@Email", email);
+
+                    await Connection.ExecuteAsync(GenericQueries.UpdateUser,
                         p,
                         commandType: CommandType.Text);
                 }

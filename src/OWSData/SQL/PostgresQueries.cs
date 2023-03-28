@@ -6,13 +6,8 @@ namespace OWSData.SQL
 {
     public static class PostgresQueries
     {
-	    
-	    public static readonly string AddAbilityToCharacterSQL = @"call AddAbilityToCharacter(
-			@CustomerGUID,
-			@AbilityName,
-			@CharacterName,
-			@AbilityLevel,
-			@CharHasAbilitiesCustomJSON)";
+
+	    #region To Refactor
 
 	    public static readonly string AddOrUpdateWorldServerSQL = @"INSERT INTO WorldServers (CustomerGUID, ServerIP, MaxNumberOfInstances, Port, ServerStatus, InternalServerIP,
                           StartingMapInstancePort, ZoneServerGUID)
@@ -38,7 +33,7 @@ ON CONFLICT ON CONSTRAINT ak_zoneservers
 					ON AT.AbilityTypeID=AB.AbilityTypeID
 				WHERE AB.CustomerGUID=@CustomerGUID
 				ORDER BY AB.AbilityName";
-	    
+
 		public static readonly string GetUserSessionSQL = @"SELECT US.CustomerGUID, US.UserGUID, US.UserSessionGUID, US.LoginDate, US.SelectedCharacterName,
 	            U.Email, U.FirstName, U.LastName, U.CreateDate, U.LastAccess, U.Role,
 	            C.CharacterID, C.CharName, C.X, C.Y, C.Z, C.RX, C.RY, C.RZ, C.MapName as ZoneName
@@ -76,31 +71,111 @@ ON CONFLICT ON CONSTRAINT ak_zoneservers
 				WHERE CustomerGUID=@CustomerGUID::UUID 
 				AND ZoneServerGUID=@ZoneServerGUID::UUID";
 
-		public static readonly string RemoveAbilityFromCharacterSQL = @"DELETE FROM CharHasAbilities
-				WHERE CustomerGUID=@CustomerGUID
-					AND CharacterID=(SELECT C.CharacterID FROM Characters C WHERE C.CharName=@CharacterName LIMIT 1)
-					AND AbilityID=(SELECT A.AbilityID FROM Abilities A WHERE A.AbilityName=@AbilityName LIMIT 1)";
-
-		public static readonly string UpdateAbilityOnCharacterSQL = @"UPDATE CharHasAbilities
-				SET AbilityLevel = @AbilityLevel,
-				CharHasAbilitiesCustomJSON = @CharHasAbilitiesCustomJSON
-				WHERE CustomerGUID=@CustomerGUID
-					AND CharacterID=(SELECT C.CharacterID FROM Characters C WHERE C.CharName=@CharacterName LIMIT 1)
-					AND AbilityID=(SELECT A.AbilityID FROM Abilities A WHERE A.AbilityName=@AbilityName LIMIT 1)";
-
 		public static readonly string UpdateNumberOfPlayersSQL = @"UPDATE MapInstances
-				SET NumberOfReportedPlayers=@NumberOfReportedPlayers,
+				SET NumberOfReportedPlayers = @NumberOfReportedPlayers,
 				LastUpdateFromServer=NOW(),
 				LastServerEmptyDate=(CASE WHEN @NumberOfReportedPlayers = 0 AND NumberOfReportedPlayers > 0 THEN NOW() ELSE (CASE WHEN NumberOfReportedPlayers = 0 AND @NumberOfReportedPlayers > 0 THEN NULL ELSE LastServerEmptyDate END) END),
 				Status=2
 				WHERE CustomerGUID=@CustomerGUID
 					AND MapInstanceID=@ZoneInstanceID";
-					
+
 		public static readonly string UpdateWorldServerSQL = @"UPDATE WorldServers
 				SET ActiveStartTime=NOW(),
 				ServerStatus=1
 				WHERE CustomerGUID=@CustomerGUID::UUID 
 				AND WorldServerID=@WorldServerID";
+
+		#endregion
+
+		#region Character Queries
+
+		public static readonly string AddAbilityToCharacter = @"INSERT INTO CharHasAbilities (CustomerGUID, CharacterID, AbilityID, AbilityLevel, CharHasAbilitiesCustomJSON)
+				SELECT @CustomerGUID, 
+					(SELECT C.CharacterID FROM Characters C WHERE C.CharName = @CharacterName AND C.CustomerGUID = @CustomerGUID ORDER BY C.CharacterID LIMIT 1),
+					(SELECT A.AbilityID FROM Abilities A WHERE A.AbilityName = @AbilityName AND A.CustomerGUID = @CustomerGUID ORDER BY A.AbilityID LIMIT 1),
+					@AbilityLevel,
+					@CharHasAbilitiesCustomJSON";
+
+		public static readonly string RemoveAbilityFromCharacter = @"DELETE FROM CharHasAbilities
+				WHERE CustomerGUID = @CustomerGUID
+					AND CharacterID = (SELECT C.CharacterID FROM Characters C WHERE C.CharName = @CharacterName  ORDER BY C.CharacterID LIMIT 1)
+					AND AbilityID = (SELECT A.AbilityID FROM Abilities A WHERE A.AbilityName = @AbilityName ORDER BY A.AbilityID LIMIT 1)";
+
+		public static readonly string RemoveCharactersFromAllInactiveInstances = @"DELETE FROM CharOnMapInstance
+                WHERE CustomerGUID = @CustomerGUID
+                AND CharacterID IN (
+                    SELECT C.CharacterID
+                      FROM Characters C
+                     INNER JOIN Users U ON U.CustomerGUID = C.CustomerGUID AND U.UserGUID = C.UserGUID
+                     WHERE U.LastAccess < CURRENT_TIMESTAMP - (@CharacterMinutes || ' minutes')::INTERVAL AND C.CustomerGUID = CharOnMapInstance.CustomerGUID)";
+
+		public static readonly string RemoveCharacterFromInstances = @"DELETE FROM CharOnMapInstance WHERE CustomerGUID = @CustomerGUID AND MapInstanceID = ANY(@MapInstances)";
+
+		public static readonly string UpdateAbilityOnCharacter = @"UPDATE CharHasAbilities
+				SET AbilityLevel = @AbilityLevel,
+				CharHasAbilitiesCustomJSON = @CharHasAbilitiesCustomJSON
+				WHERE CustomerGUID = @CustomerGUID
+					AND CharacterID = (SELECT C.CharacterID FROM Characters C WHERE C.CharName = @CharacterName ORDER BY C.CharacterID LIMIT 1)
+					AND AbilityID = (SELECT A.AbilityID FROM Abilities A WHERE A.AbilityName = @AbilityName ORDER BY A.AbilityID LIMIT 1)";
+
+		#endregion
+
+		#region User Queries
+
+		public static readonly string UpdateUserLastAccess = @"UPDATE Users
+				SET LastAccess = NOW()
+                WHERE CustomerGUID = @CustomerGUID
+                AND UserGUID IN (
+                    SELECT C.UserGUID
+                      FROM Characters C
+                      WHERE C.CustomerGUID = @CustomerGUID AND C.CharName = @CharName)";
+
+		#endregion
+
+		#region Zone Queries
+
+		public static readonly string AddMapInstance = @"INSERT INTO MapInstances (CustomerGUID, WorldServerID, MapID, Port, Status, PlayerGroupID, LastUpdateFromServer)
+		VALUES (@CustomerGUID, @WorldServerID, @MapID, @Port, 1, @PlayerGroupID, NOW())
+		RETURNING mapinstanceid";
+
+		public static readonly string GetAllInactiveMapInstances = @"SELECT MapInstanceID
+                FROM MapInstances
+                WHERE LastUpdateFromServer < CURRENT_TIMESTAMP - (@MapMinutes || ' minutes')::INTERVAL AND CustomerGUID = @CustomerGUID";
+
+		public static readonly string GetMapInstancesByWorldServerID = @"SELECT MI.*, M.SoftPlayerCap, M.HardPlayerCap, M.MapName, M.MapMode, M.MinutesToShutdownAfterEmpty, 
+		       FLOOR(EXTRACT(EPOCH FROM NOW()::TIMESTAMP - MI.LastServerEmptyDate) / 60)  AS MinutesServerHasBeenEmpty,
+		       FLOOR(EXTRACT(EPOCH FROM NOW()::TIMESTAMP - MI.LastUpdateFromServer) / 60) AS MinutesSinceLastUpdate
+				FROM Maps M
+				INNER JOIN MapInstances MI ON MI.MapID = M.MapID
+				WHERE M.CustomerGUID = @CustomerGUID
+				AND MI.WorldServerID = @WorldServerID";
+
+        public static readonly string GetZoneInstancesByZoneAndGroup = @"SELECT WS.ServerIP AS ServerIP
+					, WS.InternalServerIP AS WorldServerIP
+					, WS.Port AS WorldServerPort
+					, MI.Port
+     				, MI.MapInstanceID
+     				, WS.WorldServerID
+     				, MI.Status AS MapInstanceStatus
+				FROM WorldServers WS
+				LEFT JOIN MapInstances MI 
+					ON MI.WorldServerID = WS.WorldServerID 
+					AND MI.CustomerGUID = WS.CustomerGUID
+				LEFT JOIN CharOnMapInstance CMI 
+					ON CMI.MapInstanceID = MI.MapInstanceID 
+					AND CMI.CustomerGUID = MI.CustomerGUID
+				WHERE MI.MapID = @MapID
+				AND WS.ActiveStartTime IS NOT NULL
+				AND WS.CustomerGUID = @CustomerGUID
+				AND MI.NumberOfReportedPlayers < @SoftPlayerCap 
+				AND (MI.PlayerGroupID = @PlayerGroupID OR @PlayerGroupID = 0)
+				AND MI.Status = 2
+				GROUP BY MI.MapInstanceID, WS.ServerIP, MI.Port, WS.WorldServerID, WS.InternalServerIP, WS.Port, MI.Status
+				ORDER BY COUNT(DISTINCT CMI.CharacterID)
+				LIMIT 1";
+
+		public static readonly string RemoveMapInstances = @"DELETE FROM MapInstances WHERE CustomerGUID = @CustomerGUID AND MapInstanceID = ANY(@MapInstances)";
+
+		#endregion
 	}
 }
-

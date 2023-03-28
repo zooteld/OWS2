@@ -1,1 +1,22 @@
 version: '3.7'
+
+services:
+
+# OWS Custom Api
+  owscustomapi:
+    image: ${REGISTRY:-ows}/owscustomapi:${PLATFORM:-linux}-${TAG:-latest}
+    build:
+      context: .
+      dockerfile: OWSCustomAPI/Dockerfile
+    environment:
+     - OWSStorageConfig__OWSDBBackend=${DATABASE}
+     - OWSStorageConfig__OWSDBConnectionString=${DATABASE_CONNECTION_STRING}
+     - OWSAPIPathConfig__InternalPublicApiURL=${InternalPublicApiURL}
+     - OWSAPIPathConfig__InternalInstanceManagementApiURL=${InternalInstanceManagementApiURL}
+     - OWSAPIPathConfig__InternalCharacterPersistenceApiURL=${InternalCharacterPersistenceApiURL}
+    ports:
+      - "44340:80"
+      - "44341:443"
+    depends_on:
+      - database
+      - messaging
