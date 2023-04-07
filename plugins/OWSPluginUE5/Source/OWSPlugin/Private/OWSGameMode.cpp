@@ -5,6 +5,7 @@
 #include "OWSGameInstance.h"
 #include "OWSPlayerState.h"
 #include "OWSPlayerController.h"
+#include "OWSAPISubsystem.h"
 #include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
 #include "Runtime/Core/Public/Misc/ConfigCacheIni.h"
 
@@ -49,7 +50,42 @@ AOWSGameMode::AOWSGameMode()
 	);
 
 	//Create UOWSPlayerControllerComponent and bind delegates
-	OWSGameModeComponent = CreateDefaultSubobject<UOWSGameModeComponent>(TEXT("OWS Game Mode Component"));
+	//OWSGameModeComponent = CreateDefaultSubobject<UOWSGameModeComponent>(TEXT("OWS Game Mode Component"));
+
+
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	//GameInstance will be null on Editor startup, but will have a valid refernce when playing the game
+	if (GameInstance)
+	{
+		InitializeOWSAPISubsystemOnGameMode();
+	}
+}
+
+void AOWSGameMode::InitializeOWSAPISubsystemOnGameMode()
+{
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->OnNotifyGetGlobalDataItemDelegate.BindUObject(this, &AOWSGameMode::GetGlobalDataItemSuccess);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->OnErrorGetGlobalDataItemDelegate.BindUObject(this, &AOWSGameMode::GetGlobalDataItemError);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->OnNotifyAddOrUpdateGlobalDataItemDelegate.BindUObject(this, &AOWSGameMode::AddOrUpdateGlobalDataItemSuccess);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->OnErrorAddOrUpdateGlobalDataItemDelegate.BindUObject(this, &AOWSGameMode::AddOrUpdateGlobalDataItemError);
+}
+
+void AOWSGameMode::GetGlobalDataItemSuccess(TSharedPtr<FGlobalDataItem> GlobalDataItem)
+{
+	NotifyGetGlobalDataItem(GlobalDataItem->GlobalDataKey, GlobalDataItem->GlobalDataValue);
+}
+void AOWSGameMode::GetGlobalDataItemError(const FString& ErrorMsg)
+{
+	ErrorGetGlobalDataItem(ErrorMsg);
+}
+
+void AOWSGameMode::AddOrUpdateGlobalDataItemSuccess()
+{
+	NotifyAddOrUpdateGlobalDataItem();
+}
+void AOWSGameMode::AddOrUpdateGlobalDataItemError(const FString& ErrorMsg)
+{
+	ErrorAddOrUpdateGlobalDataItem(ErrorMsg);
 }
 
 void AOWSGameMode::ProcessOWS2POSTRequest(FString ApiModuleToCall, FString ApiToCall, FString PostParameters, void (AOWSGameMode::* InMethodPtr)(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful))
@@ -125,10 +161,10 @@ void AOWSGameMode::StartPlay()
 		FParse::Value(FCommandLine::Get(), TEXT("zoneinstanceid="), CommandLineZoneInstanceID);
 		ZoneInstanceID = FCString::Atoi(*CommandLineZoneInstanceID);
 
-		UE_LOG(OWS, Warning, TEXT("OWSGameMode::StartPlay - ZoneInstaceID: %d"), ZoneInstanceID)
+		UE_LOG(OWS, Warning, TEXT("OWSGameMode::StartPlay - ZoneInstanceID: %d"), ZoneInstanceID)
 
 		//Lookup which Zone this server is running for and get the ZoneName into IAmZoneName var
-		GetServerInstanceFromZoneInstanceID();
+		GetZoneInstanceFromZoneInstanceID(ZoneInstanceID);
 
 		//Change Status of the Zone Instance to 2 (ready for players to connect)
 		UpdateNumberOfPlayers();
@@ -397,93 +433,14 @@ void AOWSGameMode::OnGetAllInventoryItemsResponseReceived(FHttpRequestPtr Reques
 
 void AOWSGameMode::GetGlobalDataItem(FString GlobalDataKey)
 {
-	//Not Implemented
-	/*Http = &FHttpModule::Get();
-
-	if (!OWSAPICustomerKey.IsEmpty())
-	{
-		TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
-		Request->OnProcessRequestComplete().BindUObject(this, &AOWSGameMode::OnGetGlobalDataItemResponseReceived);
-		//This is the url on which to process the request
-		FString url = FString(TEXT("http://" +  + "/RPGServer/GetGlobalDataItem/")) + GlobalDataKey;
-
-		FString PostParameters = FString(TEXT("CustomerGUID=")) + OWSAPICustomerKey;
-
-		Request->SetURL(url);
-		Request->SetVerb("POST");
-		Request->SetHeader(TEXT("User-Agent"), "X-UnrealEngine-Agent");
-		Request->SetHeader("Content-Type", TEXT("application/x-www-form-urlencoded"));
-		Request->SetContentAsString(PostParameters);
-		Request->ProcessRequest();
-	}*/
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->GetGlobalDataItem(GlobalDataKey);
 }
-
-void AOWSGameMode::OnGetGlobalDataItemResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
-{
-	/*/if (bWasSuccessful)
-	{
-		TSharedPtr<FJsonObject> JsonObject;
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
-
-		if (FJsonSerializer::Deserialize(Reader, JsonObject))
-		{
-			FString GlobalDataValue = JsonObject->GetStringField("GlobalDataValue");;
-
-			NotifyGetGlobalDataItem(GlobalDataValue);
-		}
-		else
-		{
-			UE_LOG(OWS, Error, TEXT("OnGetGlobalDataItemResponseReceived Server returned no data!"));
-			ErrorGetGlobalDataItem(TEXT("OnGetGlobalDataItemResponseReceived Server returned no data!"));
-		}
-	}
-	else
-	{
-		UE_LOG(OWS, Error, TEXT("OnGetGlobalDataItemResponseReceived Error accessing server!"));
-		ErrorGetGlobalDataItem(TEXT("OnGetGlobalDataItemResponseReceived Error accessing server!"));
-	}*/
-}
-
 
 void AOWSGameMode::AddOrUpdateGlobalDataItem(FString GlobalDataKey, FString GlobalDataValue)
 {
-	//Not Implemented
-	/*
-	Http = &FHttpModule::Get();
-
-	if (!OWSAPICustomerKey.IsEmpty())
-	{
-		TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
-		Request->OnProcessRequestComplete().BindUObject(this, &AOWSGameMode::OnAddOrUpdateGlobalDataItemResponseReceived);
-		//This is the url on which to process the request
-		FString url = FString(TEXT("http://" +  + "/RPGServer/AddOrUpdateGlobalDataItem/")) + GlobalDataKey;
-
-		FString PostParameters = FString(TEXT("GlobalDataValue=")) + GlobalDataValue
-			+ FString(TEXT("&CustomerGUID=")) + OWSAPICustomerKey;
-
-		Request->SetURL(url);
-		Request->SetVerb("POST");
-		Request->SetHeader(TEXT("User-Agent"), "X-UnrealEngine-Agent");
-		Request->SetHeader("Content-Type", TEXT("application/x-www-form-urlencoded"));
-		Request->SetContentAsString(PostParameters);
-		Request->ProcessRequest();
-	}*/
-}
-
-void AOWSGameMode::OnAddOrUpdateGlobalDataItemResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
-{
-	/*if (bWasSuccessful)
-	{
-		TSharedPtr<FJsonObject> JsonObject;
-		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
-
-		NotifyAddOrUpdateGlobalDataItem();
-	}
-	else
-	{
-		UE_LOG(OWS, Error, TEXT("OnAddOrUpdateGlobalDataItemResponseReceived Error accessing server!"));
-		ErrorAddOrUpdateGlobalDataItem(TEXT("OnAddOrUpdateGlobalDataItemResponseReceived Error accessing server!"));
-	}*/
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->AddOrUpdateGlobalDataItem(GlobalDataKey, GlobalDataValue);
 }
 
 
@@ -698,20 +655,20 @@ void AOWSGameMode::OnGetZoneInstancesForZoneResponseReceived(FHttpRequestPtr Req
 }
 
 
-void AOWSGameMode::GetServerInstanceFromZoneInstanceID()
+void AOWSGameMode::GetZoneInstanceFromZoneInstanceID(int32 LookupZoneInstanceID)
 {
-	int32 Port = GetWorld()->URL.Port;
+	//int32 Port = GetWorld()->URL.Port;
 
-	UE_LOG(OWS, Verbose, TEXT("GetServerInstanceFromPort - Checking Port: %d"), Port);
+	UE_LOG(OWS, Verbose, TEXT("GetZoneInstanceFromZoneInstanceID - Checking for ZoneInstanceID: %d"), LookupZoneInstanceID);
 
 	TArray<FStringFormatArg> FormatParams;
-	FormatParams.Add(Port);
-	FString PostParameters = FString::Format(TEXT("{ \"Port\": {0} }"), FormatParams);
+	FormatParams.Add(LookupZoneInstanceID);
+	FString PostParameters = FString::Format(TEXT("{ \"ZoneInstanceId\": {0} }"), FormatParams);
 
-	ProcessOWS2POSTRequest("InstanceManagementAPI", "api/Instance/GetServerInstanceFromPort", PostParameters, &AOWSGameMode::OnGetServerInstanceFromZoneInstanceIDResponseReceived);
+	ProcessOWS2POSTRequest("InstanceManagementAPI", "api/Instance/GetZoneInstance", PostParameters, &AOWSGameMode::OnGetZoneInstanceFromZoneInstanceIDResponseReceived);
 }
 
-void AOWSGameMode::OnGetServerInstanceFromZoneInstanceIDResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+void AOWSGameMode::OnGetZoneInstanceFromZoneInstanceIDResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 {
 	if (bWasSuccessful)
 	{
@@ -723,24 +680,24 @@ void AOWSGameMode::OnGetServerInstanceFromZoneInstanceIDResponseReceived(FHttpRe
 			{
 				IAmZoneName = ServerInstanceFromPort.ZoneName;
 				UE_LOG(OWS, Verbose, TEXT("I am ZoneName: %s"), *IAmZoneName);
-				NotifyGetServerInstanceFromZoneInstanceID(IAmZoneName);
+				NotifyGetZoneInstanceFromZoneInstanceID(IAmZoneName);
 			}
 			else
 			{
-				UE_LOG(OWS, Warning, TEXT("OnGetServerInstanceFromZoneInstanceIDResponseReceived No Rows!  Ignore this error if you are running from the editor in Play as Client mode!"));
-				ErrorGetServerInstanceFromZoneInstanceID(TEXT("OnGetServerInstanceFromZoneInstanceIDResponseReceived No Rows!  Ignore this error if you are running from the editor in Play as Client mode!"));
+				UE_LOG(OWS, Warning, TEXT("OnGetZoneInstanceFromZoneInstanceIDResponseReceived No Rows!  Ignore this error if you are running from the editor in Play as Client mode!"));
+				ErrorGetZoneInstanceFromZoneInstanceID(TEXT("OnGetZoneInstanceFromZoneInstanceIDResponseReceived No Rows!  Ignore this error if you are running from the editor in Play as Client mode!"));
 			}
 		}
 		else
 		{
-			UE_LOG(OWS, Error, TEXT("OnGetServerInstanceFromZoneInstanceIDResponseReceived Server returned no data!"));
-			ErrorGetServerInstanceFromZoneInstanceID(TEXT("OnGetServerInstanceFromZoneInstanceIDResponseReceived Server returned no data!"));
+			UE_LOG(OWS, Error, TEXT("OnGetZoneInstanceFromZoneInstanceIDResponseReceived Server returned no data!"));
+			ErrorGetZoneInstanceFromZoneInstanceID(TEXT("OnGetZoneInstanceFromZoneInstanceIDResponseReceived Server returned no data!"));
 		}
 	}
 	else
 	{
-		UE_LOG(OWS, Error, TEXT("OnGetServerInstanceFromZoneInstanceIDResponseReceived Error accessing server!"));
-		ErrorGetServerInstanceFromZoneInstanceID(TEXT("OnGetServerInstanceFromZoneInstanceIDResponseReceived Error accessing server!"));
+		UE_LOG(OWS, Error, TEXT("OnGetZoneInstanceFromZoneInstanceIDResponseReceived Error accessing server!"));
+		ErrorGetZoneInstanceFromZoneInstanceID(TEXT("OnGetZoneInstanceFromZoneInstanceIDResponseReceived Error accessing server!"));
 	}
 }
 

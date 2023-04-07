@@ -90,6 +90,22 @@ public:
 };
 
 USTRUCT()
+struct FGetCharacterDataAndCustomData {
+	GENERATED_BODY()
+
+public:
+	FGetCharacterDataAndCustomData() {
+		UserSessionGUID = "";
+		CharacterName = "";
+	}
+
+	UPROPERTY()
+		FString UserSessionGUID;
+	UPROPERTY()
+		FString CharacterName;
+};
+
+USTRUCT()
 struct FAddOrUpdateCustomCharacterDataJSONPost {
 	GENERATED_BODY()
 
@@ -135,8 +151,6 @@ public:
 		PremiumCurrency = 0;
 		Score = 0;
 		XP = 0;
-		LastActivity = "";
-		CreateDate = "";
 	}
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character")
@@ -164,9 +178,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character")
 		int32 XP;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character")
-		FString LastActivity;
+		FDateTime LastActivity;
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Character")
-		FString CreateDate;
+		FDateTime CreateDate;
 
 };
 
@@ -915,6 +929,19 @@ struct FGetServerInstanceFromPort
 	GENERATED_BODY()
 
 public:
+	FGetServerInstanceFromPort() {
+		MapName = "";
+		ZoneName = "";
+		WorldCompContainsFilter = "";
+		WorldCompListFilter = "";
+		MapInstanceID = 0;
+		Status = 0;
+		MaxNumberOfInstances = 0;
+		ActiveStartTime = FDateTime();
+		ServerStatus = 0;
+		InternalServerIP = "";
+	}
+
 	UPROPERTY()
 		FString MapName;
 
@@ -947,6 +974,23 @@ public:
 
 };
 
+USTRUCT()
+struct FGlobalDataItem
+{
+	GENERATED_BODY()
+
+public:
+	FGlobalDataItem() {
+		GlobalDataKey = "";
+		GlobalDataValue = "";
+	}
+
+	UPROPERTY()
+		FString GlobalDataKey;
+	UPROPERTY()
+		FString GlobalDataValue;
+};
+
 UENUM(BlueprintType)
 namespace ERPGSchemeToChooseMap
 {
@@ -977,6 +1021,26 @@ namespace ERPGPlayerGroupType
 		Other = 99
 	};
 }
+
+USTRUCT()
+struct FCreateCharacterUsingDefaultCharacterValues
+{
+	GENERATED_BODY()
+
+public:
+	FCreateCharacterUsingDefaultCharacterValues() {
+		UserSessionGUID = "";
+		CharacterName = "";
+		DefaultSetName = "";
+	}
+
+	UPROPERTY()
+		FString UserSessionGUID;
+	UPROPERTY()
+		FString CharacterName;
+	UPROPERTY()
+		FString DefaultSetName;
+};
 
 /**
  * 

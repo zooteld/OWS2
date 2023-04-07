@@ -244,6 +244,16 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Login")
 		void ErrorCreateCharacter(const FString &ErrorMsg);
 
+	//Create Character
+	UFUNCTION(BlueprintCallable, Category = "Login")
+		void CreateCharacterUsingDefaultCharacterValues(FString UserSessionGUID, FString CharacterName, FString DefaultSetName);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Login")
+		void NotifyCreateCharacterUsingDefaultCharacterValues();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Login")
+		void ErrorCreateCharacterUsingDefaultCharacterValues(const FString& ErrorMsg);
+
 	//Get Cosmetic Character Custom Data
 	UFUNCTION(BlueprintCallable, Category = "Stats")
 		void GetCosmeticCustomCharacterData(FString UserSessionGUID, FString CharacterName);
@@ -306,12 +316,18 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Abilities")
 		void ErrorRemoveAbilityFromCharacter(const FString& ErrorMsg);
 
+	//Get Custom Character Data And Custom Data
+	UFUNCTION(BlueprintImplementableEvent, Category = "Character")
+		void NotifyGetCharacterDataAndCustomData(const TArray<FCustomCharacterDataStruct> &CustomData);
+	UFUNCTION(BlueprintImplementableEvent, Category = "Character")
+		void ErrorGetCharacterDataAndCustomData(const FString& ErrorMsg);
 
 	//Player Controller Component Delegate Bindings
 	void NotifyGetCharacterStats(TSharedPtr<FJsonObject> JsonObject);
 	void NotifyUpdateCharacterStats();
 	void NotifyGetCustomCharacterData(TSharedPtr<FJsonObject> JsonObject);
 	void ErrorCustomCharacterData(const FString& ErrorMsg);
+	void NotifyGetCharacterDataAndCustomData2(TSharedPtr<FJsonObject> JsonObject);	
 	void NotifyGetCharacterAbilities(const TArray<FAbility>& Abilities);
 	void ErrorGetCharacterAbilities(const FString& ErrorMsg);
 	void NotifyGetAbilityBars(const TArray<FAbilityBar>& AbilityBars);

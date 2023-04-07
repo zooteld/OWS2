@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Runtime/Online/HTTP/Public/Http.h"
-#include "OWS2API.h"
 #include "OWSCharacter.h"
 #include "OWSPlayerState.h"
 #include "OWSPlayerControllerComponent.generated.h"
@@ -25,6 +24,10 @@ DECLARE_DELEGATE_OneParam(FErrorGetAllCharactersDelegate, const FString&)
 //Get Character Stats
 DECLARE_DELEGATE_OneParam(FNotifyGetCharacterStatsDelegate, TSharedPtr<FJsonObject>)
 DECLARE_DELEGATE_OneParam(FErrorGetCharacterStatsDelegate, const FString&)
+
+//Get Character Data and Custom Data
+DECLARE_DELEGATE_OneParam(FNotifyGetCharacterDataAndCustomDataDelegate, TSharedPtr<FJsonObject>)
+DECLARE_DELEGATE_OneParam(FErrorGetCharacterDataAndCustomDataDelegate, const FString&)
 
 //Update Character Stats
 DECLARE_DELEGATE(FNotifyUpdateCharacterStatsDelegate)
@@ -73,6 +76,10 @@ DECLARE_DELEGATE_OneParam(FErrorPlayerLogoutDelegate, const FString&)
 //Create Character
 DECLARE_DELEGATE_OneParam(FNotifyCreateCharacterDelegate, const FCreateCharacter&)
 DECLARE_DELEGATE_OneParam(FErrorCreateCharacterDelegate, const FString&)
+
+//Create Character Using Default Character Values
+DECLARE_DELEGATE(FNotifyCreateCharacterUsingDefaultCharacterValuesDelegate)
+DECLARE_DELEGATE_OneParam(FErrorCreateCharacterUsingDefaultCharacterValuesDelegate, const FString&)
 
 //Remove Character
 DECLARE_DELEGATE(FNotifyRemoveCharacterDelegate)
@@ -155,6 +162,15 @@ public:
 
 	FNotifyGetCharacterStatsDelegate OnNotifyGetCharacterStatsDelegate;
 	FErrorGetCharacterStatsDelegate OnErrorGetCharacterStatsDelegate;
+
+	//Get Character Data and Custom Data
+	UFUNCTION(BlueprintCallable, Category = "Character")
+		void GetCharacterDataAndCustomData(FString UserSessionGUID, FString CharName);
+
+	void OnGetCharacterDataAndCustomDataResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
+
+	FNotifyGetCharacterDataAndCustomDataDelegate OnNotifyGetCharacterDataAndCustomDataDelegate;
+	FErrorGetCharacterDataAndCustomDataDelegate OnErrorGetCharacterDataAndCustomDataDelegate;
 
 	//Update Character Stats
 	UFUNCTION(BlueprintCallable, Category = "Character")
@@ -261,6 +277,16 @@ public:
 	FNotifyCreateCharacterDelegate OnNotifyCreateCharacterDelegate;
 	FErrorCreateCharacterDelegate OnErrorCreateCharacterDelegate;
 
+	//Create Character Using Default Character Values
+	UFUNCTION(BlueprintCallable, Category = "Character")
+		void CreateCharacterUsingDefaultCharacterValues(FString UserSessionGUID, FString CharacterName, FString DefaultSetName);
+
+	void CreateCharacterUsingDefaultCharacterValuesSuccess();
+	void CreateCharacterUsingDefaultCharacterValuesError(const FString& ErrorMsg);
+
+	FNotifyCreateCharacterUsingDefaultCharacterValuesDelegate OnNotifyCreateCharacterUsingDefaultCharacterValuesDelegate;
+	FErrorCreateCharacterUsingDefaultCharacterValuesDelegate OnErrorCreateCharacterUsingDefaultCharacterValuesDelegate;
+
 	//Remove Character
 	UFUNCTION(BlueprintCallable, Category = "Character")
 		void RemoveCharacter(FString UserSessionGUID, FString CharacterName);
@@ -286,6 +312,9 @@ public:
 
 	FNotifyLaunchZoneInstanceDelegate OnNotifyLaunchZoneInstanceDelegate;
 	FErrorLaunchZoneInstanceDelegate OnErrorLaunchZoneInstanceDelegate;
+
+
+	void InitializeOWSAPISubsystemOnPlayerControllerComponent();
 
 protected:
 	// Called when the game starts

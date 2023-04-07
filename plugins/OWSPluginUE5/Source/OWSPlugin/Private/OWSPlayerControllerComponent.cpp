@@ -3,6 +3,9 @@
 #include "OWSPlayerControllerComponent.h"
 #include "OWSTravelToMapActor.h"
 #include "OWSGameInstance.h"
+#include "OWSAPISubsystem.h"
+#include "OWS2API.h"
+#include "Runtime/Engine/Classes/Kismet/GameplayStatics.h"
 
 
 // Sets default values for this component's properties
@@ -47,8 +50,31 @@ UOWSPlayerControllerComponent::UOWSPlayerControllerComponent()
 		OWSEncryptionKey,
 		GGameIni
 	);
+
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	//GameInstance will be null on Editor startup, but will have a valid refernce when playing the game
+	if (GameInstance)
+	{
+		InitializeOWSAPISubsystemOnPlayerControllerComponent();
+	}
 }
 
+void UOWSPlayerControllerComponent::InitializeOWSAPISubsystemOnPlayerControllerComponent()
+{
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->OnNotifyCreateCharacterUsingDefaultCharacterValuesDelegate.BindUObject(this, &UOWSPlayerControllerComponent::CreateCharacterUsingDefaultCharacterValuesSuccess);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->OnErrorCreateCharacterUsingDefaultCharacterValuesDelegate.BindUObject(this, &UOWSPlayerControllerComponent::CreateCharacterUsingDefaultCharacterValuesError);
+}
+
+void UOWSPlayerControllerComponent::CreateCharacterUsingDefaultCharacterValuesSuccess()
+{
+	OnNotifyCreateCharacterUsingDefaultCharacterValuesDelegate.ExecuteIfBound();
+}
+
+void UOWSPlayerControllerComponent::CreateCharacterUsingDefaultCharacterValuesError(const FString& ErrorMsg)
+{
+	OnErrorCreateCharacterUsingDefaultCharacterValuesDelegate.ExecuteIfBound(ErrorMsg);
+}
 
 // Called when the game starts
 void UOWSPlayerControllerComponent::BeginPlay()
@@ -483,6 +509,42 @@ void UOWSPlayerControllerComponent::OnGetCharacterStatsResponseReceived(FHttpReq
 	{
 		UE_LOG(OWS, Error, TEXT("OnGetAllCharactersResponseReceived Error accessing server!"));
 		OnErrorGetCharacterStatsDelegate.ExecuteIfBound(TEXT("Unknown error connecting to server!"));
+	}
+}
+
+//GetCharacterDataAndCustomData - This makes a call to the OWS Public API and is usable from the Character Selection screen.
+void UOWSPlayerControllerComponent::GetCharacterDataAndCustomData(FString UserSessionGUID, FString CharName)
+{
+	FGetCharacterDataAndCustomData GetCharacterDataAndCustomDataJSONPost;
+	GetCharacterDataAndCustomDataJSONPost.UserSessionGUID = UserSessionGUID;
+	GetCharacterDataAndCustomDataJSONPost.CharacterName = CharName;
+	FString PostParameters = "";
+	if (FJsonObjectConverter::UStructToJsonObjectString(GetCharacterDataAndCustomDataJSONPost, PostParameters))
+	{
+		ProcessOWS2POSTRequest("OWSPublicAPI", "api/Characters/ByName", PostParameters, &UOWSPlayerControllerComponent::OnGetCharacterDataAndCustomDataResponseReceived);
+	}
+	else
+	{
+		UE_LOG(OWS, Error, TEXT("GetCharacterDataAndCustomData Error serializing GetCharacterStatsJSONPost!"));
+	}
+}
+
+void UOWSPlayerControllerComponent::OnGetCharacterDataAndCustomDataResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
+{
+	if (bWasSuccessful)
+	{
+		TSharedPtr<FJsonObject> JsonObject;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Response->GetContentAsString());
+
+		if (FJsonSerializer::Deserialize(Reader, JsonObject))
+		{
+			OnNotifyGetCharacterDataAndCustomDataDelegate.ExecuteIfBound(JsonObject);
+		}
+	}
+	else
+	{
+		UE_LOG(OWS, Error, TEXT("OnGetCharacterDataAndCustomDataResponseReceived Error accessing server!"));
+		OnErrorGetCharacterDataAndCustomDataDelegate.ExecuteIfBound(TEXT("Unknown error connecting to server!"));
 	}
 }
 
@@ -948,6 +1010,13 @@ void UOWSPlayerControllerComponent::OnCreateCharacterResponseReceived(FHttpReque
 		UE_LOG(OWS, Error, TEXT("OnCreateCharacterResponseReceived Error accessing login server!"));
 		OnErrorCreateCharacterDelegate.ExecuteIfBound(TEXT("Unknown error connecting to server!"));
 	}
+}
+
+//Create Character Using Default Character Values
+void UOWSPlayerControllerComponent::CreateCharacterUsingDefaultCharacterValues(FString UserSessionGUID, FString CharacterName, FString DefaultSetName)
+{
+	UGameInstance* GameInstance = UGameplayStatics::GetGameInstance(this);
+	GameInstance->GetSubsystem<UOWSAPISubsystem>()->CreateCharacterUsingDefaultCharacterValues(UserSessionGUID, CharacterName, DefaultSetName);
 }
 
 //Remove Character

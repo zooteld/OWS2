@@ -35,7 +35,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OWSGlobalData", "OWSGlobalD
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OWSManagement", "OWSManagement\OWSManagement.csproj", "{64DBC291-970E-47F1-AC1F-94F3990649BB}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OWSCustomApi", "OWSCustomApi\OWSCustomApi.csproj", "{BB591629-58C4-4964-B94E-AFC916F18D3A}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "OWSCustomApi", "OWSCustomApi\OWSCustomApi.csproj", "{54516F6E-AC35-4F20-81FF-70EE8B76ABB4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -91,10 +91,10 @@ Global
 		{64DBC291-970E-47F1-AC1F-94F3990649BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{64DBC291-970E-47F1-AC1F-94F3990649BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{64DBC291-970E-47F1-AC1F-94F3990649BB}.Release|Any CPU.Build.0 = Release|Any CPU
-		{BB591629-58C4-4964-B94E-AFC916F18D3A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{BB591629-58C4-4964-B94E-AFC916F18D3A}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{BB591629-58C4-4964-B94E-AFC916F18D3A}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{BB591629-58C4-4964-B94E-AFC916F18D3A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{54516F6E-AC35-4F20-81FF-70EE8B76ABB4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{54516F6E-AC35-4F20-81FF-70EE8B76ABB4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{54516F6E-AC35-4F20-81FF-70EE8B76ABB4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{54516F6E-AC35-4F20-81FF-70EE8B76ABB4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -1,22 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Data.SqlClient;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using OWSCustomApi.Requests.Users;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Dapper;
-using System.Data;
-using Swashbuckle.AspNetCore.Annotations;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc.Filters;
-using SimpleInjector;
-using OWSData.Models.StoredProcs;
-using OWSShared.Interfaces;
 using OWSData.Repositories.Interfaces;
-using System.ComponentModel;
-using OWSCustomApi.Requests.Users;
+using OWSShared.Interfaces;
+using Microsoft.AspNetCore.Mvc.Filters;
+using OWSData.Models.StoredProcs;
 using OWSData.Models.Composites;
+using SimpleInjector;
+using OWSCustomAPI.DTOs;
+using OWSCustomAPI.Requests.Users;
 
 namespace OWSCustomApi.Controllers
 {
@@ -27,7 +18,7 @@ namespace OWSCustomApi.Controllers
         private readonly IHeaderCustomerGUID _customerGuid;
         private readonly ICharactersRepository _charactersRepository;
         private readonly IUsersRepository _usersRepository;
-
+    
         public UsersController(IUsersRepository usersRepository, ICharactersRepository charactersRepository, IHeaderCustomerGUID customerGuid)
         {
             _usersRepository = usersRepository;
@@ -51,6 +42,15 @@ namespace OWSCustomApi.Controllers
             await request.Handle();
 
             return;
+        }
+
+        [HttpPost]
+        [Route("Logout")]
+        [Produces(typeof(SuccessAndErrorMessage))]
+        public async Task<SuccessAndErrorMessage> Logout([FromBody] LogoutDTO request)
+        {
+            LogoutRequest logoutRequest = new LogoutRequest(request, _usersRepository, _customerGuid);
+            return await logoutRequest.Handle();
         }
     }
 }
